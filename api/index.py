@@ -1,4 +1,5 @@
 import os
+import base64
 import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -14,6 +15,11 @@ CORS(app)
 ABUSE_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "YOUR_LOCAL_FALLBACK_KEY")
 VT_API_KEY = os.environ.get("VT_API_KEY", "YOUR_LOCAL_FALLBACK_KEY")
 
+def lookup_vt_url(url, headers):
+    # VirusTotal names each URL by its text in "URL-safe base64", with the = padding removed
+    url_id = base64.urlsafe_b64encode(url.encode()).decode().strip('=')
+    return requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers, timeout=5)
+
 @app.route('/api/analyze', methods=['GET', 'OPTIONS'])
 def analyze_threat():
     if request.method == 'OPTIONS':
@@ -25,6 +31,10 @@ def analyze_threat():
         return jsonify({"error": "No target provided"}), 400
 
     try:
+        # Keep the full original text, and note if it's a full URL (starts with http:// or https://)
+        original = target
+        is_url = target.lower().startswith(('http://', 'https://'))
+
         # 1. Clean off prefixes if a user types http:// or https://
         target = target.replace('https://', '').replace('http://', '')
         
@@ -38,8 +48,9 @@ def analyze_threat():
         is_domain = any(c.isalpha() for c in target)
         
         report = {
-            "search_query": target,
-            "search_type": "Domain Name" if is_domain else "IP Address",
+            "search_query": original if is_url else target,
+            "search_type": "URL" if is_url else ("Domain Name" if is_domain else "IP Address"),
+            "domain": target,
             "resolved_ip": "N/A",
             "virustotal": None,
             "abuseipdb": None
@@ -80,6 +91,30 @@ def analyze_threat():
                 report["virustotal"] = {"error": "Failed to parse VirusTotal data structures"}
         else:
             report["virustotal"] = {"error": f"VirusTotal error code {vt_resp.status_code}."}
+
+        # ================= 1b. VIRUSTOTAL URL LOOKUP (full URLs only) =================
+        # A URL scan checks one exact page. Phishing often hides on one page of a clean-looking domain.
+        if is_url:
+            url_resp = lookup_vt_url(original, vt_headers)
+
+            # VirusTotal can be fussy about a trailing slash, so try once more with one added
+            if url_resp.status_code == 404 and not original.endswith('/'):
+                url_resp = lookup_vt_url(original + '/', vt_headers)
+
+            if url_resp.status_code == 200:
+                url_stats = url_resp.json().get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+                provider = (report["virustotal"] or {}).get('network_provider', 'Unknown Entity')
+                # Replace the domain's verdict counts with this URL's own counts
+                report["virustotal"] = {
+                    "malicious_flags": url_stats.get('malicious', 0),
+                    "harmless_flags": url_stats.get('harmless', 0),
+                    "network_provider": provider,
+                    "verdict_source": "url"
+                }
+            elif url_resp.status_code == 404:
+                report["url_note"] = "VirusTotal has never scanned this exact URL, so these results are for the domain."
+            else:
+                report["url_note"] = f"VirusTotal URL lookup failed with error code {url_resp.status_code}, so these results are for the domain."
 
         # ================= 2. ABUSEIPDB LOOKUP =================
         if ip_to_check and not any(c.isalpha() for c in str(ip_to_check)):

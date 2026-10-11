@@ -19,6 +19,15 @@ const DOMAIN =
 function detectType(value) {
   const v = value.trim();
   if (!v) return null;
+  if (/^https?:\/\//i.test(v)) {
+    try {
+      const host = new URL(v).hostname;
+      if (DOMAIN.test(host) || IPV4.test(host)) return "URL";
+    } catch {
+      /* not a valid URL */
+    }
+    return "invalid";
+  }
   if (IPV4.test(v) || IPV6.test(v)) return "IP address";
   if (DOMAIN.test(v)) return "Domain";
   return "invalid";
@@ -172,13 +181,13 @@ function Hero({ onSearch, loading, full }) {
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Paste an IP address or domain to check it"
+          placeholder="Paste an IP address, domain or URL to check it"
           spellCheck="false"
           autoComplete="off"
         />
         {type && (
           <span className={`nb-search__type ${type === "invalid" ? "is-invalid" : ""}`}>
-            {type === "invalid" ? "Not an IP or domain" : type}
+            {type === "invalid" ? "Not an IP, domain or URL" : type}
           </span>
         )}
         <button type="submit" className="nb-btn" disabled={loading || !valid}>
@@ -280,6 +289,7 @@ function TargetPanel({ data, scannedAt }) {
   const rows = [
     ["Indicator", <span className="nb-code">{data.search_query}</span>],
     ["Type", data.search_type],
+    ...(data.search_type === "URL" ? [["Domain", <span className="nb-code">{data.domain}</span>]] : []),
     [
       "Hosting IP",
       ip ? (
@@ -312,7 +322,7 @@ function TargetPanel({ data, scannedAt }) {
   );
 }
 
-function VirusTotalPanel({ vt }) {
+function VirusTotalPanel({ vt, note }) {
   const mal = vt?.malicious_flags ?? 0;
   const harm = vt?.harmless_flags ?? 0;
   const total = mal + harm;
@@ -347,6 +357,8 @@ function VirusTotalPanel({ vt }) {
             <span><i className="nb-dot nb-dot--critical" /> Malicious {mal}</span>
             <span><i className="nb-dot nb-dot--good" /> Harmless {harm}</span>
           </p>
+          {vt?.verdict_source === "url" && <p className="nb-vt-note">Verdict from VirusTotal's scan of this exact URL.</p>}
+          {note && <p className="nb-vt-note">{note}</p>}
         </>
       )}
     </Panel>
@@ -539,7 +551,7 @@ export default function ThreatDashboard() {
           <div className="nb-wrap">
             <Tiles data={data} />
             <div className="nb-grid">
-              <VirusTotalPanel vt={data.virustotal} />
+              <VirusTotalPanel vt={data.virustotal} note={data.url_note} />
               <TargetPanel data={data} scannedAt={scannedAt} />
               <AbusePanel abuse={data.abuseipdb} />
               <SignalsPanel data={data} />
@@ -735,6 +747,7 @@ const STYLES = `
 .nb-tag { font-weight: 700; font-size: 13px; background: var(--concrete); border: 2px solid var(--ink); border-radius: 999px; padding: 2px 10px; }
 .nb-panel__body { padding: 20px; flex: 1; }
 .nb-note { font-weight: 500; }
+.nb-vt-note { margin-top: 14px !important; padding: 10px 14px; background: var(--concrete); border: 2px solid var(--ink); border-radius: 8px; font-size: 15px; font-weight: 500; }
 
 .nb-ratio { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .nb-ratio__big { font-weight: 800; font-size: 56px; line-height: 1; letter-spacing: -0.03em; }
