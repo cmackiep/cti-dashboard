@@ -47,9 +47,9 @@ def analyze_threat():
 
         # ================= 1. VIRUSTOTAL LOOKUP =================
         if is_domain:
-            vt_url = f'https://virustotal.com/api/v3/domains/{target}'
+            vt_url = f'https://www.virustotal.com/api/v3/domains/{target}'
         else:
-            vt_url = f'https://virustotal.com/api/v3/ip_addresses/{target}'
+            vt_url = f'https://www.virustotal.com/api/v3/ip_addresses/{target}'
 
         vt_headers = {'accept': 'application/json', 'x-apikey': VT_API_KEY}
         vt_resp = requests.get(vt_url, headers=vt_headers, timeout=5)
@@ -83,7 +83,7 @@ def analyze_threat():
 
         # ================= 2. ABUSEIPDB LOOKUP =================
         if ip_to_check and not any(c.isalpha() for c in str(ip_to_check)):
-            abuse_url = 'https://abuseipdb.com/api/v2/check'
+            abuse_url = 'https://api.abuseipdb.com/api/v2/check'
             abuse_headers = {'Accept': 'application/json', 'Key': ABUSE_API_KEY}
             abuse_params = {'ipAddress': ip_to_check, 'maxAgeInDays': '90'}
             abuse_resp = requests.get(abuse_url, headers=abuse_headers, params=abuse_params, timeout=5)
