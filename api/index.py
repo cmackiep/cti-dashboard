@@ -15,6 +15,7 @@ VT_API_KEY = os.environ.get("VT_API_KEY")
 def lookup_vt_url(url, headers):
     # VirusTotal names each URL by its text in "URL-safe base64", with the = padding removed
     url_id = base64.urlsafe_b64encode(url.encode()).decode().strip('=')
+    return requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers, timeout=5)
 
 def is_ip(value):
     #True if value is a valid IPv4 or IPv6 address, else False (e.g. a domain)
