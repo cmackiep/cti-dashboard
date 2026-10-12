@@ -141,7 +141,8 @@ def analyze_threat():
         return jsonify(report)
 
     except Exception as e:
-        response = jsonify({"error": "Internal backend execution failure", "details": str(e)})
+        print(f"Lookup failed for {target!r}: {e}")
+        response = jsonify({"error": "Oops! Something went wrong during the lookup. Try again in a moment."})
         return response, 500
 
 if __name__ == '__main__':
