@@ -19,7 +19,7 @@ def lookup_vt_url(url, headers):
     return requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers, timeout=5)
 
 def is_ip(value):
-    #True if value is a valid IPv4 or IPv6 address, else False (e.g. a domain)
+    # True if value is a valid IPv4 or IPv6 address, else False (e.g. a domain)
     try:
         ipaddress.ip_address(value)
         return True
@@ -61,7 +61,7 @@ def analyze_threat():
         print(f"Rate limited: {visitor_ip}")
         return jsonify({"error": "Slow down cowboy, too many searches! Wait a minute and try again."}), 429
                             
-    # Aligned with Claude's new dashboard config which looks up via the 'query' variable parameter
+    # Read the search from the URL, e.g. /api/analyze?query=google.com
     target = request.args.get('query', '').strip()
     if not target:
         return jsonify({"error": "No target provided"}), 400
@@ -74,7 +74,7 @@ def analyze_threat():
         # 1. Clean off prefixes if a user types http:// or https://
         target = target.replace('https://', '').replace('http://', '')
         
-        # 2. Extract the clean base target as pure text string characters (No split array lists)
+        # 2. Keep only the domain or IP, dropping any page path (site.com/login becomes site.com)
         if '/' in target:
             target = target.split('/')[0]
 
@@ -184,5 +184,5 @@ def analyze_threat():
         return response, 500
 
 if __name__ == '__main__':
-    # Local microservice engine fallback loop running on clear port 8080
+    # Only runs when you start this file yourself, for local testing on port 8080
     app.run(host='localhost', port=8080, debug=True)
