@@ -37,18 +37,18 @@ def is_rate_limited(ip):
     now = time.time()
     entry = requests_by_ip.get(ip)
 
-        # First search, or their last window has ended: start a fresh count
-        if entry is None or now - entry['start'] >= RATE_WINDOW:
-            requests_by_ip[ip] = {"count": 1, "start": now}
-            return False
-
-        # Already used up their searches for this window
-        if entry["count"] >= RATE_LIMIT:
-            return True
-
-        # Otherwise, count this search and let it through
-        entry["count"] += 1
+    # First search, or their last window has ended: start a fresh count
+    if entry is None or now - entry['start'] >= RATE_WINDOW:
+        requests_by_ip[ip] = {"count": 1, "start": now}
         return False
+
+    # Already used up their searches for this window
+    if entry["count"] >= RATE_LIMIT:
+        return True
+
+# Otherwise, count this search and let it through
+    entry["count"] += 1
+    return False
 
 @app.route('/api/analyze', methods=['GET'])
 def analyze_threat():
