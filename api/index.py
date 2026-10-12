@@ -18,9 +18,9 @@ def lookup_vt_url(url, headers):
 
 @app.route('/api/analyze', methods=['GET'])
 def analyze_threat():
-if not VT_API_KEY or not ABUSE_API_KEY:
-    print("Config error: VT_API_KEY or ABUSEIPDB_API_KEY is not set")
-    return jsonify({"error": "Oops! Something went wrong during the lookup. Try again in a moment."}), 500
+    if not VT_API_KEY or not ABUSE_API_KEY:
+        print("Config error: VT_API_KEY or ABUSEIPDB_API_KEY is not set")
+        return jsonify({"error": "Oops! Something went wrong during the lookup. Try again in a moment."}), 500
     # Aligned with Claude's new dashboard config which looks up via the 'query' variable parameter
     target = request.args.get('query', '').strip()
     if not target:
