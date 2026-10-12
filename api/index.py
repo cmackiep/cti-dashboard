@@ -26,7 +26,7 @@ def is_ip(value):
     except ValueError:
         return False
 
-    # ================= RATE LIMITING =================
+# ================= RATE LIMITING =================
 # Each visitor (by IP) gets RATE_LIMIT searches per RATE_WINDOW seconds.
 # Counts are kept in this server copy's memory, so on serverless this is best effort.
 RATE_LIMIT = 3
@@ -46,7 +46,7 @@ def is_rate_limited(ip):
     if entry["count"] >= RATE_LIMIT:
         return True
 
-# Otherwise, count this search and let it through
+    # Otherwise, count this search and let it through
     entry["count"] += 1
     return False
 
