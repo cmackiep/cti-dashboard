@@ -1,6 +1,7 @@
 import os
 import base64
 import ipaddress
+import time
 import requests
 from flask import Flask, request, jsonify
 
@@ -30,6 +31,12 @@ def analyze_threat():
     if not VT_API_KEY or not ABUSE_API_KEY:
         print("Config error: VT_API_KEY or ABUSEIPDB_API_KEY is not set")
         return jsonify({"error": "Oops! Something went wrong during the lookup. Try again in a moment."}), 500
+
+    visitor_ip = request.headers.get('x-forwarded-for', request.remote_addr)
+    if is_rate_limited(visitor_ip):
+        print(f"Rate limited: {visitor_ip}")
+        return jsonify({"error": "Slow down cowboy, too many searches! Wait a minute and try again."}), 429
+                            
     # Aligned with Claude's new dashboard config which looks up via the 'query' variable parameter
     target = request.args.get('query', '').strip()
     if not target:
