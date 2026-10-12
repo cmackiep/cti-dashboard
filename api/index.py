@@ -7,10 +7,9 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # ================= SECURE CREDENTIALS CONFIGURATION =================
-# No more hardcoded strings! Vercel pulls these safely from its secure cloud vaults.
-# For local fallback testing, you can place your key strings here if needed.
-ABUSE_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "YOUR_LOCAL_FALLBACK_KEY")
-VT_API_KEY = os.environ.get("VT_API_KEY", "YOUR_LOCAL_FALLBACK_KEY")
+# Real keys live in Vercel's environment variables. No fallback: if one is missing, fail clearly.
+ABUSE_API_KEY = os.environ.get("ABUSEIPDB_API_KEY")
+VT_API_KEY = os.environ.get("VT_API_KEY")
 
 def lookup_vt_url(url, headers):
     # VirusTotal names each URL by its text in "URL-safe base64", with the = padding removed
@@ -19,7 +18,9 @@ def lookup_vt_url(url, headers):
 
 @app.route('/api/analyze', methods=['GET'])
 def analyze_threat():
-
+if not VT_API_KEY or not ABUSE_API_KEY:
+    print("Config error: VT_API_KEY or ABUSEIPDB_API_KEY is not set")
+    return jsonify({"error": "Oops! Something went wrong during the lookup. Try again in a moment."}), 500
     # Aligned with Claude's new dashboard config which looks up via the 'query' variable parameter
     target = request.args.get('query', '').strip()
     if not target:
