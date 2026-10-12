@@ -2,12 +2,9 @@ import os
 import base64
 import requests
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 
 # ================= INITIALIZE THE APP =================
 app = Flask(__name__)
-# Global open CORS mapping to guarantee your React app connects instantly
-CORS(app)
 
 # ================= SECURE CREDENTIALS CONFIGURATION =================
 # No more hardcoded strings! Vercel pulls these safely from its secure cloud vaults.
@@ -20,10 +17,8 @@ def lookup_vt_url(url, headers):
     url_id = base64.urlsafe_b64encode(url.encode()).decode().strip('=')
     return requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers, timeout=5)
 
-@app.route('/api/analyze', methods=['GET', 'OPTIONS'])
+@app.route('/api/analyze', methods=['GET'])
 def analyze_threat():
-    if request.method == 'OPTIONS':
-        return jsonify({"status": "CORS preflight ok"}), 200
 
     # Aligned with Claude's new dashboard config which looks up via the 'query' variable parameter
     target = request.args.get('query', '').strip()
