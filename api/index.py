@@ -1,5 +1,6 @@
 import os
 import base64
+import ipaddress
 import requests
 from flask import Flask, request, jsonify
 
@@ -14,7 +15,14 @@ VT_API_KEY = os.environ.get("VT_API_KEY")
 def lookup_vt_url(url, headers):
     # VirusTotal names each URL by its text in "URL-safe base64", with the = padding removed
     url_id = base64.urlsafe_b64encode(url.encode()).decode().strip('=')
-    return requests.get(f'https://www.virustotal.com/api/v3/urls/{url_id}', headers=headers, timeout=5)
+
+def is_ip(value):
+    #True if value is a valid IPv4 or IPv6 address, else False (e.g. a domain)
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
 @app.route('/api/analyze', methods=['GET'])
 def analyze_threat():
@@ -41,7 +49,7 @@ def analyze_threat():
         target = target.replace('www.', '').strip()
 
         # Detect if the target input is a domain name
-        is_domain = any(c.isalpha() for c in target)
+        is_domain = not is_ip(target)
         
         report = {
             "search_query": original if is_url else target,
@@ -113,7 +121,7 @@ def analyze_threat():
                 report["url_note"] = f"VirusTotal URL lookup failed with error code {url_resp.status_code}, so these results are for the domain."
 
         # ================= 2. ABUSEIPDB LOOKUP =================
-        if ip_to_check and not any(c.isalpha() for c in str(ip_to_check)):
+        if ip_to_check and is_ip(ip_to_check):
             abuse_url = 'https://api.abuseipdb.com/api/v2/check'
             abuse_headers = {'Accept': 'application/json', 'Key': ABUSE_API_KEY}
             abuse_params = {'ipAddress': ip_to_check, 'maxAgeInDays': '90'}
