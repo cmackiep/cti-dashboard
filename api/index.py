@@ -31,7 +31,6 @@ def analyze_threat():
         return jsonify({"error": "No target provided"}), 400
 
     try:
-        raise Exception("test crash")
         # Keep the full original text, and note if it's a full URL (starts with http:// or https://)
         original = target
         is_url = target.lower().startswith(('http://', 'https://'))
