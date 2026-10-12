@@ -100,7 +100,9 @@ def analyze_threat():
 
         vt_headers = {'accept': 'application/json', 'x-apikey': VT_API_KEY}
         vt_resp = requests.get(vt_url, headers=vt_headers, timeout=5)
-        
+        if vt_resp.status_code ==429:
+            print("VirusTotal rate limit hit")
+            return jsonify({"error": "VirusTotal rate limit hit. Please wait a moment and try again!"}), 503
         ip_to_check = target
 
         if vt_resp.status_code == 200:
