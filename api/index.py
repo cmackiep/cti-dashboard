@@ -3,6 +3,7 @@ import base64
 import ipaddress
 import time
 import requests
+from urllib.parse import quote
 from flask import Flask, request, jsonify
 
 # ================= INITIALIZE THE APP =================
@@ -12,6 +13,7 @@ app = Flask(__name__)
 # Real keys live in Vercel's environment variables. No fallback: if one is missing, fail clearly.
 ABUSE_API_KEY = os.environ.get("ABUSEIPDB_API_KEY")
 VT_API_KEY = os.environ.get("VT_API_KEY")
+OTX_API_KEY = os.environ.get("OTX_API_KEY")
 
 def lookup_vt_url(url, headers):
     # VirusTotal names each URL by its text in "URL-safe base64", with the = padding removed
@@ -90,7 +92,8 @@ def analyze_threat():
             "resolved_ip": "N/A" if is_domain else target,
             "virustotal": None,
             "abuseipdb": None,
-            "shodan": None
+            "shodan": None,
+            "otx": None
         }
 
         # ================= 1. VIRUSTOTAL LOOKUP =================
@@ -201,6 +204,52 @@ def analyze_threat():
         else: 
             report["shodan"] = {"notice": "Skipped Shodan lookup (no valid IP resolved)"}
 
+        # ================= 4. ALIENVAULT OTX LOOKUP =================
+        # Community threat reports ("pulses") that mention this indicator. Works for IPs, domains and URLs.
+        # Extra context like Shodan: if OTX fails or isn't set up, show a note and carry on.
+        if not OTX_API_KEY:
+            print("Config warning: OTX_API_KEY is not set")
+            report["otx"] = {"error": "AlienVault OTX is not set up"}
+        else:
+            # OTX files each indicator under a type, so pick the right one
+            if is_url:
+                otx_type, otx_value = 'url', original
+            elif is_domain:
+                otx_type, otx_value = 'domain', target
+            else:
+                otx_type, otx_value = ('IPv6' if ':' in target else 'IPv4'), target
+
+            try:
+                # quote() makes the search safe to put inside a web address (e.g. a ? becomes %3F)
+                otx_url = f'https://otx.alienvault.com/api/v1/indicators/{otx_type}/{quote(otx_value, safe=":/")}/general'
+                otx_resp = requests.get(otx_url, headers={'X-OTX-API-KEY': OTX_API_KEY}, timeout=5)
+                if otx_resp.status_code == 200:
+                    o_data = otx_resp.json()
+                    pulse_info = o_data.get('pulse_info', {})
+                    pulses = pulse_info.get('pulses', [])
+
+                    # Collect each malware family once, across all the pulses
+                    families = []
+                    for pulse in pulses:
+                        for family in pulse.get('malware_families', []):
+                            name = family.get('display_name') if isinstance(family, dict) else family
+                            if name and name not in families:
+                                families.append(name)
+
+                    report["otx"] = {
+                        "pulse_count": pulse_info.get('count', 0),
+                        "recent_pulses": [p.get('name') for p in pulses[:5]],
+                        "malware_families": families[:10],
+                        "known_good": [v.get('message') for v in o_data.get('validation', []) if v.get('message')]
+                    }
+                elif otx_resp.status_code == 404:
+                    report["otx"] = {"notice": "AlienVault OTX has no record of this indicator."}
+                else:
+                    report["otx"] = {"error": f"AlienVault OTX error code {otx_resp.status_code}."}
+            except requests.RequestException as e:
+                print(f"OTX lookup failed for {otx_value!r}: {e}")
+                report["otx"] = {"error": "AlienVault OTX is unavailable right now."}
+ 
         return jsonify(report)
 
     except Exception as e:
