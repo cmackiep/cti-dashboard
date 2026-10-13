@@ -15,11 +15,11 @@ CTI Console is a free tool for checking whether a domain, URL or IP address has 
 - Attack, probe or overload the site, beyond what the [security policy](SECURITY.md) allows
 - Use it to support harassment, stalking or any illegal activity
 - Use it in a commercial product or service
-- Break the terms of service of VirusTotal or AbuseIPDB, whose data this tool relies on
+- Break the terms of service of VirusTotal, AbuseIPDB, AlienVault OTX or Shodan, whose data this tool relies on
 
 ## Things to know before you search
 
-- **Your searches are shared with third parties.** Every lookup is sent to VirusTotal and AbuseIPDB, and they can see what was searched. Don't look up sensitive internal indicators, such as private hostnames or IPs from an active investigation, if that could tip someone off or expose your organisation
+- **Your searches are shared with third parties.** Every lookup is sent to VirusTotal, AbuseIPDB, AlienVault OTX and Shodan, and they can see what was searched. Don't look up sensitive internal indicators, such as private hostnames or IPs from an active investigation, if that could tip someone off or expose your organisation
 - **Results aren't a guarantee.** A "Clean" verdict means no vendor or reporter has flagged the indicator yet, not that it's safe. Brand-new malicious infrastructure often has no history at all
 - **The data comes from third parties** and is provided as is. Always confirm findings before acting on them, especially before blocking something important or making accusations
 
