@@ -41,19 +41,6 @@ function countryName(code) {
   }
 }
 
-/* One 0-100 risk score from both sources.
-   Each VirusTotal detection adds 15 points (5+ engines = high risk),
-   and the result is whichever is worse: that or the AbuseIPDB score. */
-function assessThreat(data) {
-  const mal = data?.virustotal?.malicious_flags ?? 0;
-  const conf = data?.abuseipdb?.confidence_score ?? 0;
-  const vtScore = Math.min(100, mal * 15);
-  const score = Math.round(Math.max(vtScore, conf));
-  if (score >= 75) return { level: "critical", label: "High risk", score };
-  if (score > 0) return { level: "warning", label: "Suspicious", score };
-  return { level: "good", label: "Clean", score };
-}
-
 function levelFor(value, high = 75) {
   if (value >= high) return "critical";
   if (value > 0) return "warning";
@@ -63,6 +50,88 @@ function levelFor(value, high = 75) {
 const timeUTC = (d) => d.toISOString().slice(11, 19) + " UTC";
 
 const LEVEL_WORD = { good: "Clean", warning: "Suspicious", critical: "High risk", info: "Info" };
+
+// ["a", "b", "c"] becomes "a, b and c"
+const listJoin = (items) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+/* Each reputation source gives its own 0-100 score.
+   The verdict takes the worst one, so one credible alarm is enough to flag it. */
+function scoreSources(data) {
+  const vt = data?.virustotal;
+  const abuse = data?.abuseipdb;
+  const otx = data?.otx;
+  const sources = [];
+
+  // VirusTotal: 15 points for each engine that says malicious (5+ engines = high risk)
+  if (!vt || vt.error) {
+    sources.push({ name: "VirusTotal", score: null, headline: "No result", detail: vt?.error || "Lookup skipped." });
+  } else {
+    const mal = vt.malicious_flags ?? 0;
+    const total = mal + (vt.harmless_flags ?? 0);
+    sources.push({
+      name: "VirusTotal",
+      score: Math.min(100, mal * 15),
+      headline: `${mal} of ${total} security engines flag it`,
+      detail:
+        vt.verdict_source === "url"
+          ? "From VirusTotal's scan of this exact URL."
+          : data.url_note || "Verdicts from antivirus and security vendors.",
+    });
+  }
+
+  // AbuseIPDB: its own confidence score, built from abuse reports by other networks
+  if (!abuse || abuse.error || abuse.notice) {
+    sources.push({ name: "AbuseIPDB", score: null, headline: "No result", detail: abuse?.error || abuse?.notice || "Lookup skipped." });
+  } else {
+    const conf = abuse.confidence_score ?? 0;
+    const reports = abuse.total_reports ?? 0;
+    const count = `${reports.toLocaleString()} report${reports === 1 ? "" : "s"} in the last 90 days`;
+    sources.push({
+      name: "AbuseIPDB",
+      score: conf,
+      headline: `${conf}% abuse confidence`,
+      detail: reports > 0 && conf === 0 ? `${count}, but AbuseIPDB weighs them at 0%.` : `${count}.`,
+    });
+  }
+
+  // AlienVault OTX: community threat reports ("pulses"). Known-good indicators score 0.
+  if (!otx || otx.error || otx.notice) {
+    sources.push({ name: "AlienVault OTX", score: null, headline: "No result", detail: otx?.error || otx?.notice || "Lookup skipped." });
+  } else {
+    const pulses = otx.pulse_count ?? 0;
+    const families = otx.malware_families ?? [];
+    const knownGood = otx.known_good ?? [];
+    let score = 0;
+    if (knownGood.length === 0 && families.length > 0) score = 50;
+    else if (knownGood.length === 0 && pulses > 0) score = 25;
+    sources.push({
+      name: "AlienVault OTX",
+      score,
+      headline:
+        knownGood.length > 0
+          ? "Listed as known good"
+          : `In ${pulses} community threat report${pulses === 1 ? "" : "s"}`,
+      detail:
+        knownGood.length > 0
+          ? knownGood.join(" · ")
+          : families.length > 0
+          ? `Linked to ${families.join(", ")}.`
+          : pulses > 0
+          ? `Latest: ${otx.recent_pulses?.[0]}`
+          : "No community reports mention it.",
+    });
+  }
+
+  return sources.map((s) => ({ ...s, level: s.score === null ? "info" : levelFor(s.score) }));
+}
+
+function assessThreat(data) {
+  const sources = scoreSources(data);
+  const score = Math.max(0, ...sources.map((s) => s.score ?? 0));
+  const level = levelFor(score);
+  return { level, label: LEVEL_WORD[level], score, sources };
+}
 
 /* ------------------------------ bits ----------------------------- */
 function Mark({ level, size = 18 }) {
@@ -91,29 +160,6 @@ function Flag({ code }) {
       height="20"
       onError={() => setFailed(true)}
     />
-  );
-}
-
-/* ----------------------------- ticker ---------------------------- */
-function Ticker({ history }) {
-  if (!history.length) return null;
-  const items = history.map((h) => ({ text: `${h.query} ${LEVEL_WORD[h.level]} ${h.score}/100`, level: h.level }));
-  // Repeat the list so the strip is always wider than the screen, then double it for a seamless loop.
-  const row = [];
-  while (row.length < 10) row.push(...items);
-  const loop = [...row, ...row];
-  return (
-    <div className="nb-ticker" aria-hidden="true">
-      <div className="nb-ticker__track">
-        {loop.map((it, i) => (
-          <span key={i} className="nb-ticker__item">
-            <span className="nb-ticker__star">★</span>
-            {it.level && <i className={`nb-dot nb-dot--${it.level}`} />}
-            {it.text}
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -209,12 +255,15 @@ function Hero({ onSearch, loading, full }) {
 
 /* ----------------------------- verdict --------------------------- */
 function VerdictBand({ threat, data }) {
-  const mal = data.virustotal?.malicious_flags ?? 0;
-  const conf = data.abuseipdb?.confidence_score ?? 0;
+  const flagged = threat.sources.filter((s) => s.score > 0).map((s) => s.name);
+  const checked = threat.sources.filter((s) => s.score !== null).length;
+  const provider = data.virustotal?.network_provider?.replace(/\.$/, "");
+  const cc = data.abuseipdb?.hosting_country;
+  const where = provider ? ` Hosted by ${provider}${cc ? ` in ${countryName(cc)}` : ""}.` : "";
   const summary =
-    threat.level === "good"
-      ? "No security vendor or abuse reporter has flagged this indicator."
-      : `${mal} engine${mal === 1 ? "" : "s"} flagged it as malicious, and the hosting IP has a ${conf}% abuse confidence score.`;
+    (flagged.length > 0
+      ? `Flagged by ${listJoin(flagged)}.`
+      : `None of the ${checked} reputation sources flag it.`) + where;
   return (
     <section className={`nb-verdict nb-verdict--${threat.level}`} role={threat.level === "good" ? undefined : "alert"}>
       <div className="nb-verdict__inner">
@@ -229,34 +278,6 @@ function VerdictBand({ threat, data }) {
         </div>
       </div>
     </section>
-  );
-}
-
-/* ------------------------------ tiles ---------------------------- */
-function Tiles({ data }) {
-  const mal = data.virustotal?.malicious_flags ?? 0;
-  const harm = data.virustotal?.harmless_flags ?? 0;
-  const conf = data.abuseipdb?.confidence_score ?? 0;
-  const reports = data.abuseipdb?.total_reports ?? 0;
-  const tiles = [
-    { label: "Malicious detections", value: mal, level: levelFor(mal, 5), note: `out of ${mal + harm} engines` },
-    { label: "Harmless verdicts", value: harm, level: "info", note: "VirusTotal engines" },
-    { label: "Abuse confidence", value: `${conf}%`, level: levelFor(conf), note: "AbuseIPDB score" },
-    { label: "Abuse reports", value: reports.toLocaleString(), level: reports > 0 ? "warning" : "good", note: "Last 90 days" },
-  ];
-  return (
-    <div className="nb-tiles">
-      {tiles.map((t) => (
-        <div key={t.label} className="nb-card nb-tile">
-          <div className="nb-tile__top">
-            <span className="nb-tile__label">{t.label}</span>
-            <Mark level={t.level} size={22} />
-          </div>
-          <span className="nb-tile__value">{t.value}</span>
-          <span className="nb-tile__note">{t.note}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -277,6 +298,7 @@ function TargetPanel({ data, scannedAt }) {
   const [copied, setCopied] = useState(false);
   const cc = data.abuseipdb?.hosting_country;
   const ip = data.resolved_ip && data.resolved_ip !== "N/A" ? data.resolved_ip : null;
+  const hostnames = data.shodan?.hostnames ?? [];
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(ip);
@@ -301,6 +323,7 @@ function TargetPanel({ data, scannedAt }) {
         "Not resolved"
       ),
     ],
+    ...(hostnames.length ? [["Hostnames", <span className="nb-code">{hostnames.slice(0, 3).join(", ")}</span>]] : []),
     ["Provider", data.virustotal?.network_provider || "Unknown"],
     [
       "Country",
@@ -309,7 +332,7 @@ function TargetPanel({ data, scannedAt }) {
     ["Checked at", <span className="nb-code">{timeUTC(scannedAt)}</span>],
   ];
   return (
-    <Panel title="Target profile" className="nb-span-4">
+    <Panel title="What is it?" className="nb-span-6">
       <dl className="nb-kv">
         {rows.map(([k, v]) => (
           <div key={k} className="nb-kv__row">
@@ -322,72 +345,26 @@ function TargetPanel({ data, scannedAt }) {
   );
 }
 
-function VirusTotalPanel({ vt, note }) {
-  const mal = vt?.malicious_flags ?? 0;
-  const harm = vt?.harmless_flags ?? 0;
-  const total = mal + harm;
-  const malPct = total ? (mal / total) * 100 : 0;
-  const cells = [
-    ...Array.from({ length: mal }, () => "critical"),
-    ...Array.from({ length: harm }, () => "good"),
-  ];
+function ReputationPanel({ sources }) {
   return (
-    <Panel title="Engine verdicts" source="VirusTotal" className="nb-span-8">
-      {vt?.error ? (
-        <p className="nb-note">{vt.error}</p>
-      ) : (
-        <>
-          <p className="nb-ratio">
-            <span className="nb-ratio__big">{mal}</span>
-            <span className="nb-ratio__of">of {total} engines say malicious</span>
-          </p>
-          <div className="nb-bar" role="img" aria-label={`${mal} malicious, ${harm} harmless`}>
-            {mal > 0 && <span className="nb-bar__seg nb-bar__seg--critical" style={{ width: `${Math.max(malPct, 2)}%` }} />}
-            {harm > 0 && <span className="nb-bar__seg nb-bar__seg--good" style={{ flex: 1 }} />}
-            {total === 0 && <span className="nb-bar__empty">No engine results</span>}
-          </div>
-          {cells.length > 0 && (
-            <div className="nb-engines" aria-hidden="true">
-              {cells.map((c, i) => (
-                <span key={i} className={`nb-engine nb-engine--${c}`} title={`Engine ${i + 1}: ${c === "critical" ? "Malicious" : "Harmless"}`} />
-              ))}
+    <Panel title="Is it known to be bad?" className="nb-span-12">
+      <p className="nb-lede">Each source scores it out of 100. The verdict takes the worst score.</p>
+      <ul className="nb-rep">
+        {sources.map((s) => (
+          <li key={s.name} className="nb-rep__row">
+            <Mark level={s.level} size={28} />
+            <div className="nb-rep__text">
+              <span className="nb-rep__source">{s.name}</span>
+              <strong className="nb-rep__headline">{s.headline}</strong>
+              <span className="nb-rep__detail">{s.detail}</span>
             </div>
-          )}
-          <p className="nb-legend">
-            <span><i className="nb-dot nb-dot--critical" /> Malicious {mal}</span>
-            <span><i className="nb-dot nb-dot--good" /> Harmless {harm}</span>
-          </p>
-          {vt?.verdict_source === "url" && <p className="nb-vt-note">Verdict from VirusTotal's scan of this exact URL.</p>}
-          {note && <p className="nb-vt-note">{note}</p>}
-        </>
-      )}
-    </Panel>
-  );
-}
-
-function AbusePanel({ abuse }) {
-  const conf = Math.min(Math.max(abuse?.confidence_score ?? 0, 0), 100);
-  const reports = abuse?.total_reports ?? 0;
-  const note = abuse?.error || abuse?.notice;
-  return (
-    <Panel title="Abuse confidence" source="AbuseIPDB" className="nb-span-6">
-      {note ? (
-        <p className="nb-note">{note}</p>
-      ) : (
-        <>
-          <p className="nb-ratio">
-            <span className="nb-ratio__big">{conf}%</span>
-            <span className="nb-ratio__of">likely to be abusive, from {reports.toLocaleString()} report{reports === 1 ? "" : "s"}</span>
-          </p>
-          <div className="nb-meter" role="img" aria-label={`Abuse confidence ${conf} percent`}>
-            <span className="nb-meter__zone nb-meter__zone--good" style={{ width: "25%" }}>Low</span>
-            <span className="nb-meter__zone nb-meter__zone--warning" style={{ width: "50%" }}>Medium</span>
-            <span className="nb-meter__zone nb-meter__zone--critical" style={{ width: "25%" }}>High</span>
-            <span className="nb-meter__pin" style={{ left: `${conf}%` }} />
-          </div>
-          <div className="nb-meter__scale">{[0, 25, 75, 100].map((n) => <span key={n} style={{ left: `${n}%` }}>{n}</span>)}</div>
-        </>
-      )}
+            <span className={`nb-rep__score nb-rep__score--${s.level}`}>
+              {s.score ?? "N/A"}
+              {s.score !== null && <small>/100</small>}
+            </span>
+          </li>
+        ))}
+      </ul>
     </Panel>
   );
 }
@@ -412,7 +389,7 @@ function ShodanPanel({ shodan }) {
   const vulns = shodan?.vulns ?? [];
   const tags = shodan?.tags ?? [];
   return (
-    <Panel title="Exposure" source="Shodan" className="nb-span-12">
+    <Panel title="How exposed is it?" source="Shodan" className="nb-span-6">
       {note ? (
         <p className="nb-note">{note}</p>
       ) : (
@@ -426,57 +403,11 @@ function ShodanPanel({ shodan }) {
           <Chips label="Ports" items={ports} />
           <Chips label="Vulnerabilities" items={vulns} />
           <Chips label="Tags" items={tags} />
+          <p className="nb-vt-note">
+            Open ports and known flaws show what an attacker could reach. They don't make it malicious, so they don't change the score.
+          </p>
         </>
       )}
-    </Panel>
-  );
-}
-
-function SignalsPanel({ data }) {
-  const mal = data.virustotal?.malicious_flags ?? 0;
-  const conf = data.abuseipdb?.confidence_score ?? 0;
-  const reports = data.abuseipdb?.total_reports ?? 0;
-  const ip = data.resolved_ip && data.resolved_ip !== "N/A" ? data.resolved_ip : null;
-  const ports = data.shodan?.open_ports;
-  const vulns = data.shodan?.vulns?.length ?? 0;
-  const signals = [
-    {
-      level: mal >= 5 ? "critical" : mal > 0 ? "warning" : "good",
-      text: mal > 0 ? `${mal} VirusTotal engine${mal === 1 ? " reports" : "s report"} this as malicious.` : "No VirusTotal engine reports this as malicious.",
-    },
-    {
-      level: levelFor(conf),
-      text: conf > 0 ? `AbuseIPDB rates the hosting IP ${conf}% likely to be abusive.` : "AbuseIPDB has no abuse confidence against the hosting IP.",
-    },
-    {
-      level: reports > 0 ? "warning" : "good",
-      text: reports > 0 ? `${reports.toLocaleString()} abuse report${reports === 1 ? "" : "s"} filed against this IP.` : "No abuse reports on record for this IP.",
-    },
-    {
-      level: ip ? "info" : "warning",
-      text: ip
-        ? `Hosted on ${ip}${data.virustotal?.network_provider ? `, ${data.virustotal.network_provider.replace(/\.$/, "")}` : ""}.`
-        : "The hosting IP could not be resolved.",
-    },
-    {
-      level: vulns > 0 ? "warning" : "info",
-      text: !ports
-        ? "No Shodan exposure data for this IP."
-        : vulns > 0
-        ? `Shodan lists ${vulns} known vulnerabilit${vulns === 1 ? "y" : "ies"} on this IP. That's exposure, not proof of malice.`
-        : `Shodan lists ${ports.length} open port${ports.length === 1 ? "" : "s"} and no known vulnerabilities.`,
-    },
-  ];
-  return (
-    <Panel title="Why this verdict" className="nb-span-6">
-      <ul className="nb-signals">
-        {signals.map((s, i) => (
-          <li key={i}>
-            <Mark level={s.level} size={22} />
-            <span>{s.text}</span>
-          </li>
-        ))}
-      </ul>
     </Panel>
   );
 }
@@ -530,7 +461,7 @@ function LoadingView({ query }) {
   return (
     <section className="nb-loading" aria-live="polite">
       <p>
-        Checking <span className="nb-code">{query}</span> with VirusTotal and AbuseIPDB and Shodan
+        Checking <span className="nb-code">{query}</span> with VirusTotal, AbuseIPDB, AlienVault OTX and Shodan
       </p>
       <div className="nb-loading__bar"><span /></div>
     </section>
@@ -598,7 +529,6 @@ export default function ThreatDashboard() {
     <div className="nb-app">
       <style>{STYLES}</style>
       <TopBar />
-      <Ticker history={history} />
       <Hero onSearch={runSearch} loading={loading} full={!loading && !data && !error} />
 
       {error && (
@@ -616,12 +546,9 @@ export default function ThreatDashboard() {
         <>
           <VerdictBand threat={threat} data={data} />
           <div className="nb-wrap">
-            <Tiles data={data} />
             <div className="nb-grid">
-              <VirusTotalPanel vt={data.virustotal} note={data.url_note} />
+              <ReputationPanel sources={threat.sources} />
               <TargetPanel data={data} scannedAt={scannedAt} />
-              <AbusePanel abuse={data.abuseipdb} />
-              <SignalsPanel data={data} />
               <ShodanPanel shodan={data.shodan} />
               <HistoryPanel history={history} onPick={runSearch} loading={loading} />
               <RawJson data={data} />
@@ -632,7 +559,7 @@ export default function ThreatDashboard() {
 
       <footer className="nb-foot">
         <span>CTI Console</span>
-        <span>Data from VirusTotal, AbuseIPDB and Shodan</span>
+        <span>Data from VirusTotal, AbuseIPDB, AlienVault OTX and Shodan</span>
       </footer>
     </div>
   );
@@ -687,14 +614,6 @@ const STYLES = `
 }
 .nb-brand__name { font-weight: 800; font-size: 22px; letter-spacing: -0.02em; }
 .nb-clock { font-family: var(--mono); font-weight: 700; font-size: 14px; border: var(--line); padding: 6px 10px; border-radius: 8px; }
-
-/* ticker */
-.nb-ticker { background: var(--concrete); color: var(--ink); overflow: hidden; border-bottom: var(--line); }
-.nb-ticker__track { display: flex; width: max-content; animation: nb-scroll 60s linear infinite; }
-.nb-ticker__item { display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; font-weight: 700; font-size: 16px; white-space: nowrap; }
-.nb-ticker__star { color: var(--ink); }
-@keyframes nb-scroll { to { transform: translateX(-50%); } }
-@media (prefers-reduced-motion: reduce) { .nb-ticker__track { animation: none; } }
 
 /* hero */
 .nb-hero {
@@ -784,14 +703,6 @@ const STYLES = `
 .nb-stamp__num { font-weight: 800; font-size: clamp(56px, 7vw, 88px); line-height: 1; letter-spacing: -0.04em; }
 .nb-stamp__of { font-weight: 700; font-size: 14px; text-align: center; padding: 0 16px; }
 
-/* tiles */
-.nb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 20px; margin-top: 36px; }
-.nb-tile { padding: 18px 20px; display: flex; flex-direction: column; gap: 4px; }
-.nb-tile__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.nb-tile__label { font-weight: 700; font-size: 15px; }
-.nb-tile__value { font-weight: 800; font-size: clamp(40px, 4vw, 56px); line-height: 1.05; letter-spacing: -0.03em; }
-.nb-tile__note { font-size: 14px; }
-
 .nb-mark {
   flex: 0 0 auto; display: inline-grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%;
   font-weight: 800; line-height: 1;
@@ -802,7 +713,7 @@ const STYLES = `
 .nb-mark--info { background: var(--info); }
 
 /* panels grid */
-.nb-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; margin: 20px 0 56px; }
+.nb-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; margin: 36px 0 56px; }
 .nb-span-4 { grid-column: span 4; }
 .nb-span-6 { grid-column: span 6; }
 .nb-span-8 { grid-column: span 8; }
@@ -817,43 +728,6 @@ const STYLES = `
 .nb-note { font-weight: 500; }
 .nb-vt-note { margin-top: 14px !important; padding: 10px 14px; background: var(--concrete); border: 2px solid var(--ink); border-radius: 8px; font-size: 15px; font-weight: 500; }
 
-.nb-ratio { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.nb-ratio__big { font-weight: 800; font-size: 56px; line-height: 1; letter-spacing: -0.03em; }
-.nb-ratio__of { font-weight: 500; }
-
-.nb-bar { display: flex; height: 34px; margin-top: 18px; border: var(--line); border-radius: 8px; overflow: hidden; background: var(--paper); }
-.nb-bar__seg + .nb-bar__seg { border-left: var(--line); }
-.nb-bar__seg--critical { background: var(--critical); }
-.nb-bar__seg--good { background: var(--good); }
-.nb-bar__empty { margin: auto; font-weight: 700; font-size: 14px; }
-
-.nb-engines { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 16px; }
-.nb-engine { width: 16px; height: 16px; border: 2px solid var(--ink); border-radius: 3px; }
-.nb-engine--critical { background: var(--critical); }
-.nb-engine--good { background: var(--good); }
-
-.nb-legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px !important; font-weight: 700; font-size: 15px; }
-.nb-legend span { display: inline-flex; align-items: center; gap: 8px; }
-.nb-dot { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 50%; }
-.nb-dot--good { background: var(--good); }
-.nb-dot--warning { background: var(--warning); }
-.nb-dot--critical { background: var(--critical); }
-.nb-dot--info { background: var(--info); }
-
-.nb-meter { position: relative; display: flex; height: 40px; margin-top: 22px; border: var(--line); border-radius: 8px; }
-.nb-meter__zone { display: grid; place-items: center; font-weight: 700; font-size: 13px; }
-.nb-meter__zone + .nb-meter__zone { border-left: var(--line); }
-.nb-meter__zone--good { background: var(--good); border-radius: 5px 0 0 5px; }
-.nb-meter__zone--warning { background: var(--warning); }
-.nb-meter__zone--critical { background: var(--critical); border-radius: 0 5px 5px 0; }
-.nb-meter__pin {
-  position: absolute; top: -12px; bottom: -12px; width: 8px; margin-left: -4px;
-  background: var(--ink); border: 2px solid var(--paper); border-radius: 4px;
-}
-.nb-meter__scale { position: relative; height: 18px; margin-top: 14px; font-family: var(--mono); font-size: 13px; }
-.nb-meter__scale span { position: absolute; transform: translateX(-50%); }
-.nb-meter__scale span:first-child { transform: none; }
-.nb-meter__scale span:last-child { transform: translateX(-100%); }
 
 .nb-kv { margin: 0; display: flex; flex-direction: column; }
 .nb-kv__row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 2px dashed var(--ink); }
@@ -866,8 +740,28 @@ const STYLES = `
 .nb-flag--text { font-family: var(--mono); font-size: 12px; padding: 0 4px; }
 
 .nb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
-.nb-signals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-.nb-signals li { display: flex; align-items: flex-start; gap: 12px; font-weight: 500; }
+.nb-ratio { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.nb-ratio__big { font-weight: 800; font-size: 56px; line-height: 1; letter-spacing: -0.03em; }
+.nb-ratio__of { font-weight: 500; }
+
+.nb-lede { font-weight: 500; margin-bottom: 4px !important; }
+.nb-rep { list-style: none; margin: 0; padding: 0; }
+.nb-rep__row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; padding: 18px 0; border-bottom: 2px dashed var(--ink); }
+.nb-rep__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.nb-rep__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nb-rep__source { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
+.nb-rep__headline { font-weight: 800; font-size: clamp(19px, 2vw, 24px); line-height: 1.2; }
+.nb-rep__detail { font-size: 15px; overflow-wrap: anywhere; }
+.nb-rep__score {
+  min-width: 92px; text-align: center; font-weight: 800; font-size: 26px; line-height: 1;
+  border: var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: var(--pop-sm);
+}
+.nb-rep__score small { font-size: 14px; font-weight: 700; }
+.nb-rep__score--good { background: var(--good); }
+.nb-rep__score--warning { background: var(--warning); }
+.nb-rep__score--critical { background: var(--critical); }
+.nb-rep__score--info { background: var(--info); font-size: 18px; }
+@media (max-width: 560px) { .nb-rep__row { grid-template-columns: auto 1fr; } .nb-rep__score { grid-column: 2; justify-self: start; } }
 
 .nb-history { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; }
 .nb-hist {
