@@ -89,7 +89,8 @@ def analyze_threat():
             "domain": target,
             "resolved_ip": "N/A",
             "virustotal": None,
-            "abuseipdb": None
+            "abuseipdb": None,
+            "shodan": None
         }
 
         # ================= 1. VIRUSTOTAL LOOKUP =================
@@ -175,6 +176,30 @@ def analyze_threat():
                 report["abuseipdb"] = {"error": f"AbuseIPDB error code {abuse_resp.status_code}."}
         else:
             report["abuseipdb"] = {"notice": "Skipped infrastructure lookup (No valid IP resolved)"}
+
+        # ================= 3. SHODAN INTERNETDB LOOKUP =================
+        # Free, no key. Shows which ports are open on the IP and any known vulnerabilities (CVEs).
+        # Extra context only, so if Shodan fails we show a note instead of failing the whole search.
+        if ip_to_check and is_ip(ip_to_check):
+            try:
+                shodan_resp = requests.get(f'https://internetdb.shodan.io/{ip_to_check}', timeout=5)
+                if shodan_resp.status_code == 200:
+                    s_data = shodan_resp.json()
+                    report["shodan"] = {
+                        "open_ports": s_data.get('ports', []),
+                        "vulns": s_data.get('vulns', []),
+                        "tags": s_data.get('tags', []),
+                        "hostnames": s_data.get('hostnames', [])
+                    }
+                elif shodan_resp.status_code == 404:
+                    report["shodan"] = {"notice": "Shodan has no scan data for this IP."}
+                else:
+                    report["shodan"] = {"error": f"Shodan error code {shodan_resp.status_code}."}
+            except requests.RequestException as e:
+                print(f"Shodan lookup failed for {ip_to_check!r}: {e}")
+                report["shodan"] = {"error": "Shodan is unavailable right now."}
+        else: 
+            report["shodan"] = {"notice": "Skipped Shodan lookup (no valid IP resolved)"}
 
         return jsonify(report)
 
