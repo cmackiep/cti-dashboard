@@ -87,7 +87,7 @@ def analyze_threat():
             "search_query": original if is_url else target,
             "search_type": "URL" if is_url else ("Domain Name" if is_domain else "IP Address"),
             "domain": target,
-            "resolved_ip": "N/A",
+            "resolved_ip": "N/A" if is_domain else target,
             "virustotal": None,
             "abuseipdb": None,
             "shodan": None

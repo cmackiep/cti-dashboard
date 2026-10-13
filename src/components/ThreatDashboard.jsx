@@ -442,7 +442,7 @@ function SignalsPanel({ data }) {
   const signals = [
     {
       level: mal >= 5 ? "critical" : mal > 0 ? "warning" : "good",
-      text: mal > 0 ? `${mal} VirusTotal engine${mal === 1 ? "" : "s"} report this as malicious.` : "No VirusTotal engine reports this as malicious.",
+      text: mal > 0 ? `${mal} VirusTotal engine${mal === 1 ? " reports" : "s report"} this as malicious.` : "No VirusTotal engine reports this as malicious.",
     },
     {
       level: levelFor(conf),
@@ -530,7 +530,7 @@ function LoadingView({ query }) {
   return (
     <section className="nb-loading" aria-live="polite">
       <p>
-        Checking <span className="nb-code">{query}</span> with VirusTotal and AbuseIPDB
+        Checking <span className="nb-code">{query}</span> with VirusTotal and AbuseIPDB and Shodan
       </p>
       <div className="nb-loading__bar"><span /></div>
     </section>
@@ -632,7 +632,7 @@ export default function ThreatDashboard() {
 
       <footer className="nb-foot">
         <span>CTI Console</span>
-        <span>Data from VirusTotal and AbuseIPDB and Shodan</span>
+        <span>Data from VirusTotal, AbuseIPDB and Shodan</span>
       </footer>
     </div>
   );
