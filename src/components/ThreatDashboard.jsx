@@ -451,14 +451,29 @@ function HistoryPanel({ history, onPick, loading }) {
 }
 
 function RawJson({ data }) {
+  const [copied, setCopied] = useState(false);
+  const json = JSON.stringify(data, null, 2);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(json);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
   return (
     <details className="nb-card nb-raw nb-span-12">
-      <summary>Raw API response</summary>
-      <pre>{JSON.stringify(data, null, 2)}</pre>
+      <summary>Report data (JSON)</summary>
+      <div className="nb-raw__bar">
+        <button type="button" className="nb-mini" onClick={copy}>
+          {copied ? "Copied" : "Copy JSON"}
+        </button>
+      </div>
+      <pre>{json}</pre>
     </details>
   );
 }
-
 function LoadingView({ query }) {
   return (
     <section className="nb-loading" aria-live="polite">
@@ -815,8 +830,7 @@ const STYLES = `
 .nb-raw { padding: 0; overflow: hidden; }
 .nb-raw summary { cursor: pointer; font-weight: 800; font-size: 18px; padding: 14px 20px; }
 .nb-raw[open] summary { border-bottom: var(--line); }
-.nb-raw pre { margin: 0; padding: 20px; overflow-x: auto; font-family: var(--mono); font-size: 13px; background: var(--concrete); }
-
+.nb-raw__bar { display: flex; justify content: flex end; padding: 12px 20px 0; background: var(--concrete); }
 /* footer */
 .nb-foot {
   margin-top: auto; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
