@@ -453,7 +453,9 @@ function HistoryPanel({ history, onPick, loading }) {
 function RawJson({ data }) {
   const [copied, setCopied] = useState(false);
   const json = JSON.stringify(data, null, 2);
-  const copy = async () => {
+  const copy = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     try {
       await navigator.clipboard.writeText(json);
       setCopied(true);
@@ -464,12 +466,12 @@ function RawJson({ data }) {
   };
   return (
     <details className="nb-card nb-raw nb-span-12">
-      <summary>Report data (JSON)</summary>
-      <div className="nb-raw__bar">
+      <summary>
+        Report data (JSON)
         <button type="button" className="nb-mini" onClick={copy}>
           {copied ? "Copied" : "Copy JSON"}
         </button>
-      </div>
+      </summary>
       <pre>{json}</pre>
     </details>
   );
@@ -830,7 +832,7 @@ const STYLES = `
 .nb-raw { padding: 0; overflow: hidden; }
 .nb-raw summary { cursor: pointer; font-weight: 800; font-size: 18px; padding: 14px 20px; }
 .nb-raw[open] summary { border-bottom: var(--line); }
-.nb-raw__bar { display: flex; justify content: flex end; padding: 12px 20px 0; background: var(--concrete); }
+.nb-raw summary .nb-mini { margin-left: 12px; vertical-align: middle; }
 /* footer */
 .nb-foot {
   margin-top: auto; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
