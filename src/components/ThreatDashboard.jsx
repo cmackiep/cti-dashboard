@@ -392,11 +392,53 @@ function AbusePanel({ abuse }) {
   );
 }
 
+function Chips({ label, items, max = 12 }) {
+  if (items.length === 0) return null;
+  const extra = items.length - max;
+  return (
+    <div className="nb-chips">
+      <strong>{label}</strong>
+      {items.slice(0, max).map((item) => (
+        <span key={item} className="nb-tag">{item}</span>
+      ))}
+      {extra > 0 && <span>+{extra} more</span>}
+    </div>
+  );
+}
+
+function ShodanPanel({ shodan }) {
+  const note = shodan?.error || shodan?.notice;
+  const ports = shodan?.open_ports ?? [];
+  const vulns = shodan?.vulns ?? [];
+  const tags = shodan?.tags ?? [];
+  return (
+    <Panel title="Exposure" source="Shodan" className="nb-span-12">
+      {note ? (
+        <p className="nb-note">{note}</p>
+      ) : (
+        <>
+          <p className="nb-ratio">
+            <span className="nb-ratio__big">{ports.length}</span>
+            <span className="nb-ratio__of">
+              open port{ports.length === 1 ? "" : "s"}, {vulns.length} known vulnerabilit{vulns.length === 1 ? "y" : "ies"}
+            </span>
+          </p>
+          <Chips label="Ports" items={ports} />
+          <Chips label="Vulnerabilities" items={vulns} />
+          <Chips label="Tags" items={tags} />
+        </>
+      )}
+    </Panel>
+  );
+}
+
 function SignalsPanel({ data }) {
   const mal = data.virustotal?.malicious_flags ?? 0;
   const conf = data.abuseipdb?.confidence_score ?? 0;
   const reports = data.abuseipdb?.total_reports ?? 0;
   const ip = data.resolved_ip && data.resolved_ip !== "N/A" ? data.resolved_ip : null;
+  const ports = data.shodan?.open_ports;
+  const vulns = data.shodan?.vulns?.length ?? 0;
   const signals = [
     {
       level: mal >= 5 ? "critical" : mal > 0 ? "warning" : "good",
@@ -415,6 +457,14 @@ function SignalsPanel({ data }) {
       text: ip
         ? `Hosted on ${ip}${data.virustotal?.network_provider ? `, ${data.virustotal.network_provider.replace(/\.$/, "")}` : ""}.`
         : "The hosting IP could not be resolved.",
+    },
+    {
+      level: vulns > 0 ? "warning" : "info",
+      text: !ports
+        ? "No Shodan exposure data for this IP."
+        : vulns > 0
+        ? `Shodan lists ${vulns} known vulnerabilit${vulns === 1 ? "y" : "ies"} on this IP. That's exposure, not proof of malice.`
+        : `Shodan lists ${ports.length} open port${ports.length === 1 ? "" : "s"} and no known vulnerabilities.`,
     },
   ];
   return (
@@ -572,6 +622,7 @@ export default function ThreatDashboard() {
               <TargetPanel data={data} scannedAt={scannedAt} />
               <AbusePanel abuse={data.abuseipdb} />
               <SignalsPanel data={data} />
+              <ShodanPanel shodan={data.shodan} />
               <HistoryPanel history={history} onPick={runSearch} loading={loading} />
               <RawJson data={data} />
             </div>
@@ -581,7 +632,7 @@ export default function ThreatDashboard() {
 
       <footer className="nb-foot">
         <span>CTI Console</span>
-        <span>Data from VirusTotal and AbuseIPDB</span>
+        <span>Data from VirusTotal and AbuseIPDB and Shodan</span>
       </footer>
     </div>
   );
@@ -814,6 +865,7 @@ const STYLES = `
 .nb-flag { border: 2px solid var(--ink); border-radius: 3px; object-fit: cover; }
 .nb-flag--text { font-family: var(--mono); font-size: 12px; padding: 0 4px; }
 
+.nb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
 .nb-signals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
 .nb-signals li { display: flex; align-items: flex-start; gap: 12px; font-weight: 500; }
 
