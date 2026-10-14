@@ -106,6 +106,7 @@ As I added sources, each one got its own panel. The page ended up showing the sa
 - **"No data" verdict.** When no source has ever seen a brand-new indicator, the dashboard shows Clean. It should say "No data" instead, since brand-new malicious infrastructure often has no history
 - **Server-side input validation.** The search bar checks input, but the API itself should also reject anything that isn't a valid IP, domain or URL, since front-end checks can be bypassed
 - **Sequential lookups.** The back end calls each source one after another. Running them in parallel would make searches noticeably faster
+- **Weighting sources by reliability.** The verdict takes the worst score, because a false alarm is cheaper than a missed threat. A more mature approach would weight each source by how reliable it is, like the Admiralty Code that intel teams use to grade sources, then tune those weights against known-good and known-bad indicators
 
 ## Running it yourself
 

@@ -332,7 +332,7 @@ function TargetPanel({ data, scannedAt }) {
     ["Checked at", <span className="nb-code">{timeUTC(scannedAt)}</span>],
   ];
   return (
-    <Panel title="What is it?" className="nb-span-6">
+    <Panel title="What is it?" className="nb-span-5">
       <dl className="nb-kv">
         {rows.map(([k, v]) => (
           <div key={k} className="nb-kv__row">
@@ -347,8 +347,8 @@ function TargetPanel({ data, scannedAt }) {
 
 function ReputationPanel({ sources }) {
   return (
-    <Panel title="Is it known to be bad?" className="nb-span-12">
-      <p className="nb-lede">Each source scores it out of 100. The verdict takes the worst score.</p>
+    <Panel title="Is it known to be bad?" className="nb-span-7">
+      <p className="nb-lede">Each source scores it out of 100. The most worried one wins. Better a false alarm than a missed baddie.</p>
       <ul className="nb-rep">
         {sources.map((s) => (
           <li key={s.name} className="nb-rep__row">
@@ -389,20 +389,24 @@ function ShodanPanel({ shodan }) {
   const vulns = shodan?.vulns ?? [];
   const tags = shodan?.tags ?? [];
   return (
-    <Panel title="How exposed is it?" source="Shodan" className="nb-span-6">
+    <Panel title="How exposed is it?" source="Shodan" className="nb-span-12">
       {note ? (
         <p className="nb-note">{note}</p>
       ) : (
         <>
+          <div className="nb-exposure">
           <p className="nb-ratio">
             <span className="nb-ratio__big">{ports.length}</span>
             <span className="nb-ratio__of">
               open port{ports.length === 1 ? "" : "s"}, {vulns.length} known vulnerabilit{vulns.length === 1 ? "y" : "ies"}
             </span>
           </p>
-          <Chips label="Ports" items={ports} />
-          <Chips label="Vulnerabilities" items={vulns} />
-          <Chips label="Tags" items={tags} />
+          <div>
+            <Chips label="Ports" items={ports} />
+            <Chips label="Vulnerabilities" items={vulns} />
+            <Chips label="Tags" items={tags} />
+          </div>
+          </div>
           <p className="nb-vt-note">
             Open ports and known flaws show what an attacker could reach. They don't make it malicious, so they don't change the score.
           </p>
@@ -547,8 +551,8 @@ export default function ThreatDashboard() {
           <VerdictBand threat={threat} data={data} />
           <div className="nb-wrap">
             <div className="nb-grid">
-              <ReputationPanel sources={threat.sources} />
               <TargetPanel data={data} scannedAt={scannedAt} />
+              <ReputationPanel sources={threat.sources} />
               <ShodanPanel shodan={data.shodan} />
               <HistoryPanel history={history} onPick={runSearch} loading={loading} />
               <RawJson data={data} />
@@ -715,10 +719,12 @@ const STYLES = `
 /* panels grid */
 .nb-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; margin: 36px 0 56px; }
 .nb-span-4 { grid-column: span 4; }
+.nb-span-5 { grid-column: span 5; }
 .nb-span-6 { grid-column: span 6; }
+.nb-span-7 { grid-column: span 7; }
 .nb-span-8 { grid-column: span 8; }
 .nb-span-12 { grid-column: span 12; }
-@media (max-width: 960px) { .nb-span-4, .nb-span-6, .nb-span-8 { grid-column: span 12; } }
+@media (max-width: 960px) { .nb-span-4, .nb-span-5, .nb-span-6, .nb-span-7, .nb-span-8 { grid-column: span 12; } }
 
 .nb-panel { display: flex; flex-direction: column; overflow: hidden; }
 .nb-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: var(--line); }
@@ -744,6 +750,9 @@ const STYLES = `
 .nb-ratio__big { font-weight: 800; font-size: 56px; line-height: 1; letter-spacing: -0.03em; }
 .nb-ratio__of { font-weight: 500; }
 
+.nb-exposure { display: grid; grid-template-columns: minmax(220px, auto) 1fr; gap: 8px 32px; align-items: start; }
+.nb-exposure .nb-chips:first-child { margin-top: 4px; }
+@media (max-width: 700px) { .nb-exposure { grid-template-columns: 1fr; } }
 .nb-lede { font-weight: 500; margin-bottom: 4px !important; }
 .nb-rep { list-style: none; margin: 0; padding: 0; }
 .nb-rep__row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; padding: 18px 0; border-bottom: 2px dashed var(--ink); }
