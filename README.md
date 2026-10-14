@@ -1,6 +1,6 @@
 # CTI Console
 
-A threat intelligence lookup tool. Paste a domain, URL or IP address and it checks four intelligence sources, then tells one clear story: is it known to be bad, what is it, and how exposed is it. Built as a first-pass triage tool for anyone investigating whether an indicator is malicious.
+A threat intelligence lookup tool. Paste a domain, URL or IP address and it checks four intelligence sources, then tells the user: "is it known to be bad, what is it, and how exposed is it?". Built as a first-pass triage tool for anyone investigating whether an indicator is malicious.
 
 **Live:** https://cti-dashboard-tau.vercel.app
 
